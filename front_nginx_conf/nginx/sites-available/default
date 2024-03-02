@@ -1,0 +1,53 @@
+
+# Default server configuration
+#
+upstream backend {
+	server 192.168.1.212:8081;
+	server 192.168.1.222:8080;
+}
+
+server {
+    listen 80;
+
+    server_name example.com www.example.com;
+    set $root_path /var/www/html/wordpress;
+    disable_symlinks if_not_owner from=$root_path;
+    index index.html index.php;
+
+    location / {
+#	proxy_pass http://192.168.1.222:8080;
+#	proxy_redirect http://192.168.1.222:8080/ /;
+	proxy_pass http://backend;
+	proxy_redirect http://backend/ /;
+	proxy_set_header Host $host;
+	proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+	proxy_set_header X-Real-IP $remote_addr;
+	proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    
+    location @apache {
+#	proxy_pass http://192.168.1.222:8080;
+#	proxy_redirect http://192.168.1.222:8080/ /;
+	proxy_pass http://backend;
+	proxy_redirect http://backend/ /;
+	proxy_set_header Host $host;
+	proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+	proxy_set_header X-Real-IP $remote_addr;
+	proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+#    location ~* ^.+\.(jpg|jpeg|gif|png|rar|txt|tar|bz2|pdf|bmp|js|ico|css|zip|tgz|gz)$ {
+#	root $root_path;
+#	error_page 404 = @apache;
+#    }
+
+#    location ~* ^/(webstat|awstats|webmail|myadmin|pgadmin)/ {
+#	error_page 404 = @apache;
+#	return 404;
+#    }
+
+#    location ~ /\.ht {
+#	return 404;
+#    }
+}
