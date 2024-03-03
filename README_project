@@ -1,0 +1,421 @@
+			Автоматизация развёртывания программного обеспечения ИТ-инфраструктуры сайта реализованного на CMS WordPress.
+	
+	Серверная инфраструктура представлена шестью серверами:
+	- Сервер балансировки нагрузки NGINX (Hostname: front-nginx, IP: 192.168.1.145);
+	- Первый бэкенд-сервер Apache (Hostname: first-apache, IP: 192.168.1.222);
+	- Второй бэкенд-сервер Apache (Hostname: second-apache, IP: 192.168.1.212);
+	- Основной сервер базы данных (БД) MySQL (Hostname: master-mysql, IP: 192.168.1.69);
+	- Сервер репликации БД MySQL (Hostname: slave-mysql, IP: 192.168.1.98);
+	- Сервер мониторинга и логирования (Hostname: monitoring-srv, IP: 192.168.1.60).
+	
+	Перечень устанавливаемого программного обеспечения (ПО) для каждого из серверов:
+	- fornt-nginx (192.168.1.145):
+	  nginx, prometheus-node-exporter, filebeat, mc;
+	- first-apache (192.168.1.222):
+	  apache2, php, php-mysql, libapache2-mod-rpaf, libapache2-mod-php, php-cli, php-cgi, php-gd,
+	  prometheus-node-exporter mc;
+	- second-apache (192.168.1.212):
+	  apache2, php, php-mysql, libapache2-mod-rpaf, libapache2-mod-php, php-cli, php-cgi, php-gd,
+	  prometheus-node-exporter mc;
+	- master-mysql (192.168.1.69):
+	  mysql-server-8.0, prometheus-node-exporter, mc;
+	- slave-mysql (192.168.1.98):
+	  mysql-server-8.0, prometheus-node-exporter, mc;
+	- monitoring-srv (192.168.1.90):
+	  prometheus, prometheus-node-exporter, default-jdk, grafana_10.2.2, logstash-8.9.1, 
+	  elasticsearch-8.9.1, kibana-8.9.1, mc.
+
+	Репозиторий с набором ПО, скриптами установки ПО, настройками серверов и файлами конфигураций сервисов 
+размещены на веб-сервисе GitHub по адресу https://github.com/DemBeshtau/configurations. На хосте, с которого
+осуществляется конфигурирование серверов, настроено ssh-подключение к вышеуказанному ресурсу на GitHub.
+Для того, чтобы получить требуемые конфигурации, необходимо клонировать репозиторий с помощью команды:
+	git clone git@github.com:DemBeshtau/configurations.git
+	Дополнительное ПО для ELK-стека и мониторинга доступно по ссылке https://disk.yandex.ru/d/ZzOjaZgR308lzw
+	После скачивания архива, необходимо его распаковать и скопировать установочные пакеты по указанным ниже
+папкам в соответствии с перечнем устанавливаемого ПО для каждого сервера.
+	Набор ПО, файлы конфигураций сервисов, скрипты бекапа и восстановления БД MySQL 
+располагаются в директориях с именами соответствующих конфигурируемых серверов с добавлением в конце 
+названия окончания "_conf": front_nginx_conf, first_apache_conf, second_apache_conf, master_mysql_conf, 
+slave_mysql_conf, monitoring_srv_conf. Указанные директории расположены в директории configurations.
+	
+	Перед запуском скрипта автоматизированного конфигурирования, необходимо включить сервера с установленной 
+операционной системой (ОС) Ubuntu Server и настроенными сетевыми интерфейсами, согласно вышеуказанного списка 
+имён хостов и их IP-адресов.
+	После чего, на хосте, с которого осуществляется конфигурирование серверной инфрастуктуры в директории 
+~/congigurations необходимо запустить скрипт configurator.sh и следовать указаниям выводимым в консоль. 
+По завершению работы скрипта, сервисы серверов инфраструктуры должны быть настроены, перезапущены и готовы к работе.
+	Для проверки работы сайта в интеренет-браузере необходимо ввести следующую строку:
+	http://192.168.1.145.
+	После чего должна открыться страница приветствия сайта, реализованного с использованием CMS Wordpress.
+
+	Пояснения к работе скриптов.
+	
+	Скрипт configurator.sh
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+#!/bin/bash
+#	В скрипте циклически перебираются IP-адреса конфигурируемых серверов, после чего в операторе case на 
+# метках соответствующим этим адресам производится последовательный запуск команд, подготавливающих сервера к работе 
+
+# В переменную USER записывается имя пользователя, использующееся при ssh-подключениях
+USER="dem"
+
+# В переменная HOSTS инициализируется списком IP-адресов конфигурируемых серверов
+HOSTS="192.168.1.145 192.168.1.222 192.168.1.212 192.168.1.69 192.168.1.98 192.168.1.60"
+
+# После данного диалога переменная pass инициализируется значением введёной строки и используется
+#в дальнейшем как пароль при осуществлении ssh-подключений  
+echo "Enter password for sudo: "
+read -s pass
+
+# После данного диалога переменная mysqlpass инициализируется значением введённой строки и используется
+#в дальнейшем как пароль при конфигурировании пользователя root в MySQL
+echo -e "Enter password for root user of mysql: "
+read -s mysqlpass
+
+# После данного диалога переменная replicapass инициализируется значением введённой строки и используется
+#в дальнейшем как пароль при конфигурировании пользователя repl в MySQL
+echo -e "Enter password for replication user of mysql: "
+read -s replicapass
+
+# После данного диалога переменная wp инициализируется значением введённой строки и используется
+#в дальнейшем как пароль при конфигурировании пользователя wp_user в MySQL
+echo -e "Enter password for Wordpress user: "			
+read -s wp
+
+# Цикл в котором осуществляется конфигурирование серверов с указанными IP-адресами
+for H in $HOSTS
+do
+    case "$H" in
+    192.168.1.145)
+			# На сервер 192.168.1.145 копируется необходимое ПО и файлы конфигураций,
+			# необходимых для настройки балансировщика NGINX		    
+			rsync -avz /home/dem/configurations/front_nginx_conf/* $USER@$H:/home/dem/configs
+			# Для запуска команд с сервером 192.168.1.145 устанавливается ssh-соединение и первой 
+			# командой осуществляется установка имени хоста front-nginx 		    
+			sshpass -p $pass ssh -t $USER@$H "sudo hostnamectl set-hostname front-nginx;
+				     # Замена машинного идентификатора на новый
+					 sudo rm -f /etc/machine-id;
+				     sudo dbus-uuidgen --ensure=/etc/machine-id;
+					 # Установка часового пояса
+					 sudo timedatectl set-timezone Europe/Moscow;
+					 # Обновление списка пакетов перед последующей установкой ПО
+				     sudo apt update;
+					 # Установка необходимого ПО из Ubuntu-репозитария
+				     sudo apt install -y nginx prometheus-node-exporter mc;
+				     # Устранение возможных сбоев в установке пакетов, вызванными нарушенными зависимостями
+					 sudo apt -f install;
+					 cd /home/dem/configs;
+					 # Установка необходимого ПО из deb-пакета
+				     sudo dpkg -i filebeat-8.9.1-amd64.deb;
+				     # Устранение возможных сбоев в установке пакетов, вызванными нарушенными зависимостями
+					 sudo apt -f install;
+				     # Добавление сервиса в автозагрузку с последующим запуском/
+					 sudo systemctl enable --now filebeat.service;
+				     # Блок команд удаляющих начальные конфигурации сервисов и далее копирующих необходимые 
+					 #для работы конфигурационные файлы  
+					 sudo rm -r /etc/nginx;
+				     sudo rm -r /etc/filebeat;
+				     sudo cp -r /home/dem/configs/nginx /etc;
+				     sudo cp -r /home/dem/configs/filebeat /etc;
+				     # Перезапуск сервисов после реконфигурирования
+					 sudo systemctl restart nginx;
+				     sudo systemctl restart filebeat;
+				    ";;
+    192.168.1.222)
+			# На сервер 192.168.1.222 копируется необходимое ПО и файлы конфигураций,
+			# необходимых для настройки бэкэнда Apache
+		    rsync -avz /home/dem/configurations/first_apache_conf/* $USER@$H:/home/dem/configs
+			# Для запуска команд с сервером 192.168.1.222 устанавливается ssh-соединение и первой 
+			# командой осуществляется установка имени хоста first-apache		    
+			sshpass -p $pass ssh -t $USER@$H "sudo hostnamectl set-hostname first-apache;
+					 # Замена машинного идентификатора на новый
+				     sudo rm -f /etc/machine-id;
+				     sudo dbus-uuidgen --ensure=/etc/machine-id;
+					 # Установка часового пояса
+					 sudo timedatectl set-timezone Europe/Moscow;
+					 # Обновление списка пакетов перед последующей установкой ПО
+				     sudo apt update;
+					 # Установка необходимого ПО из Ubuntu-репозитария
+				     sudo apt install -y apache2 php php-mysql libapache2-mod-rpaf libapache2-mod-php; 
+				     # Устранение возможных сбоев в установке пакетов, вызванными нарушенными зависимостями
+					 sudo apt -f install;
+   					 # Установка необходимого ПО из Ubuntu-репозитария
+				     sudo apt install -y php-cli php-cgi php-gd prometheus-node-exporter mc;
+				     # Устранение возможных сбоев в установке пакетов, вызванными нарушенными зависимостями
+					 sudo apt -f install;
+					 # Блок команд удаляющих начальные конфигурации сервисов и далее копирующих необходимые 
+					 #для работы конфигурационные файлы
+				     sudo rm -r /etc/apache2;
+				     sudo cp -r /home/dem/configs/apache2 /etc;
+				     # Блок команд включающих необходимые модули Apache
+					 sudo a2enmod rewrite;
+				     sudo a2enmod rpaf;
+				     sudo a2enmod remoteip;
+					 # Блок команд подготавливающих для работы CMS Wordpress
+					 # Копирование настроенной конфигурации CMS Wordpress в рабочие директории	
+				     sudo cp -r /home/dem/configs/wordpress /var/www/html;
+					 # Установка соответствующего владельца и группы, требующихся для работы сайта
+				     sudo chown -R www-data:www-data /var/www/html/wordpress;
+					 # Перезапуск сервиса Apache
+				     sudo systemctl restart apache2;
+				     ";;
+    192.168.1.212)
+			# Команды аналогичные предшествующему блоку команд
+		    rsync -avz /home/dem/configurations/second_apache_conf/* $USER@$H:/home/dem/configs
+		    sshpass -p $pass ssh -t $USER@$H "sudo hostnamectl set-hostname second-apache;
+				     sudo rm -f /etc/machine-id;
+				     sudo dbus-uuidgen --ensure=/etc/machine-id;
+					 # Установка часового пояса
+					 sudo timedatectl set-timezone Europe/Moscow;
+				     sudo apt update;
+				     sudo apt install -y apache2 php php-mysql libapache2-mod-rpaf libapache2-mod-php;
+				     sudo apt -f install;
+				     sudo apt install -y php-cli php-cgi php-gd prometheus-node-exporter mc;
+				     sudo apt -f install;
+				     sudo rm -r /etc/apache2;
+				     sudo cp -r /home/dem/configs/apache2 /etc;
+				     sudo a2enmod rewrite;
+				     sudo a2enmod rpaf;
+				     sudo a2enmod remoteip;
+				     sudo cp -r /home/dem/configs/wordpress /var/www/html;
+				     sudo chown -R www-data:www-data /var/www/html/wordpress;
+				     sudo systemctl restart apache2;
+				     ";;
+    192.168.1.69)
+			# На сервер 192.168.1.69 копируется необходимое ПО и файлы конфигураций
+			# для настройки БД MySQL		    
+			rsync -avz /home/dem/configurations/master_mysql_conf/* $USER@$H:/home/dem/configs
+			# Для запуска команд с сервером 192.168.1.69 устанавливается ssh-соединение и первой 
+			# командой осуществляется установка имени хоста master-mysql
+		    sshpass -p $pass ssh -t $USER@$H "sudo hostnamectl set-hostname master-mysql;
+				     # Замена машинного идентификатора на новый
+					 sudo rm -f /etc/machine-id;
+				     sudo dbus-uuidgen --ensure=/etc/machine-id;
+					 # Установка часового пояса
+					 sudo timedatectl set-timezone Europe/Moscow;
+				     # Обновление списка пакетов перед последующей установкой ПО
+					 sudo apt update;
+				     # Установка необходимого ПО из Ubuntu-репозитария 
+					 sudo apt install -y mysql-server-8.0 prometheus-node-exporter mc;
+				     # Блок команд удаляющих начальные конфигурации сервисов и далее копирующих необходимые 
+					 #для работы конфигурационные файлы
+					 sudo rm /var/lib/mysql/auto.cnf;
+				     sudo rm -r /etc/mysql;
+				     sudo cp -r /home/dem/configs/mysql /etc;
+					 # Перезапуск сервиса mysql
+					 sudo systemctl restart mysql;
+					 # Генерирование файла с паролями к mysql .my.cnf
+				     echo -e \"[mysql]\nuser='root'\npassword='$mysqlpass'\n\" > ~/.my.cnf;
+					 # Создание в MySQL пользователя root c паролем 
+				     sudo mysql -e \"ALTER USER 'root'@'localhost' IDENTIFIED WITH 'caching_sha2_password' BY '$mysqlpass'\";
+					 # Создание в MySQL пользователя repl с паролем
+					 mysql -e \"CREATE USER repl@'%' IDENTIFIED WITH 'caching_sha2_password' BY '$replicapass'\";
+					 # Установка пользователю repl разрешения не репликацию данных
+					 mysql -e \"GRANT REPLICATION SLAVE ON *.* TO repl@'%'\";
+					 # Создание в MySQL пользователя wp_user необходимого для работы CMS Wordpress
+					 mysql -e \"CREATE USER wp_user@'%' IDENTIFIED BY '$wp'\";
+					 # Установка пользователю wp_user разрешений на использование БД, предназначенных для работы
+					 # сайтов на Wordpress 
+					 mysql -e \"GRANT ALL PRIVILEGES ON wpress_db.* TO wp_user@'%'\";
+					 mysql -e \"GRANT ALL PRIVILEGES ON wpress_db_dbl.* TO wp_user@'%'\";		
+					 #Загрузка бэкапа в mysql
+				     sh /home/dem/configs/load_db.sh;
+				    ";;
+    192.168.1.98)
+			# На сервер 192.168.1.98 копируется необходимое ПО и файлы конфигураций
+			# для настройки БД MySQL		    
+			rsync -avz /home/dem/configurations/slave_mysql_conf/* $USER@$H:/home/dem/configs		
+			# Для запуска команд с сервером 192.168.1.98 устанавливается ssh-соединение и первой 
+			# командой осуществляется установка имени хоста slave-mysql	    
+			sshpass -p $pass ssh -t $USER@$H "sudo hostnamectl set-hostname slave-mysql;
+				     # Замена машинного идентификатора на новый
+					 sudo rm -f /etc/machine-id;
+				     sudo dbus-uuidgen --ensure=/etc/machine-id;
+					 # Установка часового пояса
+					 sudo timedatectl set-timezone Europe/Moscow;
+				     # Обновление списка пакетов перед последующей установкой ПО
+					 sudo apt update;
+				     # Установка необходимого ПО из Ubuntu-репозитария 
+					 sudo apt install -y mysql-server-8.0 prometheus-node-exporter mc;
+				     # Блок команд удаляющих начальные конфигурации сервисов и далее копирующих необходимые 
+					 # для работы конфигурационные файлы
+					 sudo rm /var/lib/mysql/auto.cnf;
+				     sudo rm -r /etc/mysql;
+				     sudo cp -r /home/dem/configs/mysql /etc;
+					 # Генерирование файла с паролями к mysql .my.cnf
+				     echo -e \"[mysql]\nuser='root'\npassword='$mysqlpass'\n\" > ~/.my.cnf;
+				     sudo mysql -e \"ALTER USER 'root'@'localhost' IDENTIFIED WITH 'caching_sha2_password' BY '$mysqlpass'\";
+				     # Перезапуск сервиса mysql
+					 sudo systemctl restart mysql;
+				     # Загрузка бэкапа в mysql
+					 sh /home/dem/configs/load_db.sh;
+					 # Остановка репликации
+				     mysql -e \"STOP REPLICA\";
+				     # Настройка процесса репликации
+					 mysql -e \"CHANGE REPLICATION SOURCE TO SOURCE_HOST='192.168.1.69', SOURCE_USER='repl', SOURCE_PASSWORD='$replicapass', SOURCE_AUTO_POSITION = 1, GET_SOURCE_PUBLIC_KEY = 1 \";
+					 # Запуск репликации
+				     mysql -e \"START REPLICA\";
+				    ";;
+    192.168.1.60)
+			# На сервер 192.168.1.60 копируется необходимое ПО и файлы конфигураций
+			# для настройки мониторинга и логирования
+		    rsync -avz /home/dem/configurations/monitoring_srv_conf/* $USER@$H:/home/dem/configs
+			# Для запуска команд с сервером 192.168.1.60 устанавливается ssh-соединение и первой 
+			# командой осуществляется установка имени хоста slave-mysql		    
+			sshpass -p $pass ssh -t $USER@$H "sudo hostnamectl set-hostname monitoring-srv;
+				     # Замена машинного идентификатора на новый
+					 sudo rm -f /etc/machine-id;
+				     sudo dbus-uuidgen --ensure=/etc/machine-id;
+					 # Установка часового пояса
+					 sudo timedatectl set-timezone Europe/Moscow;
+				     # Обновление списка пакетов перед последующей установкой ПО
+					 sudo apt update;
+				     # Установка необходимого ПО из Ubuntu-репозитария 
+					 sudo apt install -y default-jdk;
+					 # Устранение возможных сбоев в установке пакетов, вызванными нарушенными зависимостями
+					 sudo apt -f install;
+					 # Установка необходимого ПО из Ubuntu-репозитария
+				     sudo apt install -y prometheus prometheus-node-exporter mc;
+				     cd /home/dem/configs;
+					 # Блок команд удаляющих начальные конфигурации сервисов и далее копирующих необходимые 
+					 # для работы конфигурационные файлы
+				     sudo rm -r /etc/prometheus;
+				     sudo cp -r /home/dem/configs/prometheus /etc;
+					 # Блок команд устанавливающих ПО мониторинга и логирования из deb-пакетов
+					 # После установки производится настройка сервисов путём копирования заготовленных 
+                     # конфигурационных файлов
+				     sudo dpkg -i grafana_10.2.2_amd64.deb;
+				     sudo apt -f install;
+				     sudo dpkg -i elasticsearch-8.9.1-amd64.deb;
+				     sudo apt -f install;
+				     sudo rm -r /etc/elasticsearch;
+				     sudo cp -r /home/dem/configs/elasticsearch /etc;
+				     sudo chown -R root:elasticsearch /etc/elasticsearch;
+				     sudo dpkg -i logstash-8.9.1-amd64.deb;
+				     sudo apt -f install;
+				     sudo rm -r /etc/logstash;
+				     sudo cp -r /home/dem/configs/logstash /etc;
+				     sudo dpkg -i kibana-8.9.1-amd64.deb;
+				     sudo apt -f install;
+				     sudo rm -r /etc/kibana;
+				     sudo cp -r /home/dem/configs/kibana /etc;
+				     sudo chown -R root:kibana /etc/kibana;
+				     # Добавление установленных сервисов в автозагрузку и их запуск 
+					 sudo systemctl daemon-reload;
+				     sudo systemctl enable --now grafana-server;
+				     sudo systemctl enable --now elasticsearch.service;
+				     sudo systemctl enable --now kibana.service;
+				     sudo systemctl enable --now logstash.service;
+					 sudo systemctl restart prometheus;
+				    ";;
+    esac
+done
+
+exit 0
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+		Скрипт dumpdb.sh	 
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+#!/bin/bash
+
+# Скрипт для бэкапа таблиц баз MySQL
+
+#   Во внешнем цикле осуществляется перебор имеющихся баз данных. Далее во вложенном цикле 
+# происходит подключение к каждой из баз с последующим перебором таблиц, которые направляются
+# на обработку утилите mysqldump. Сжатые программой gzip дампы таблиц сохраняются в директориях,
+# имеющих имена соответствующих баз данных.
+
+MYSQL='mysql --skip-column-names'
+
+for s in $($MYSQL -e "SHOW DATABASES LIKE '%_db%'")
+do
+    mkdir $s
+    for t in $($MYSQL -e "USE $s; SHOW TABLES")
+    do
+	# Потабличный дамп БД Wordpress
+    /usr/bin/mysqldump --add-drop-table --create-options --disable-keys --extended-insert --single-transaction --quick --events --routines --set-gtid-purged=OFF --triggers --source-data=1 --skip-lock-tables --flush-privileges $s $t | gzip -1 > $s/$t.sql.gz
+    done
+done
+
+for i in $($MYSQL -e "SHOW DATABASES WHERE \`Database\` LIKE 'information_schema' OR \`Database\` LIKE 'mysql' OR \`Database\` LIKE 'performance_schema' OR \`Database\` LIKE 'sys'")
+do
+    mkdir $i
+	# Дамп системных БД MySQL
+    /usr/bin/mysqldump --add-drop-table --create-options --disable-keys --extended-insert --single-transaction --quick --events --routines --set-gtid-purged=OFF --triggers --source-data=1 --skip-lock-tables --flush-privileges $i | gzip -1 > $i/$i.sql.gz
+done
+
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+	Скрипт load_db.sh
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+#!/bin/bash
+# Скрипт загружает бэкапы в MySQL
+
+# в переменную передаётся путь к месту хранения бэкапов БД
+ph=/home/dem/configs/db_arch
+
+# во внешнем цикле производится перебор имён имеющихся дампов БД,
+# при отсутствии в MySQL БД с перебираемыми именами, производится 
+# их создание
+for i in $(ls $ph)
+do
+    mysql -e "CREATE DATABASE IF NOT EXISTS $i"
+done
+
+# в данном цикле определяется подвергались ли бэкапы архивированию,
+# при наличии архивов в директориях производится их разархивирование
+for i in $(ls $ph)
+do
+    for j in $(ls $ph/$i)
+	do
+    	    tmpvar=$(echo $j | sed 's/[a-zA-Z0-9_]*.//')
+#	    echo $tmpvar
+	    if [ $tmpvar = "sql.gz" ]
+	    then
+		gunzip $ph/$i/$j
+	    fi
+	done
+done
+
+# В данном цикле производится "заливка" данных в MySQL
+for i in $(ls $ph)
+do
+    for j in $(ls $ph/$i)
+    do
+	mysql $i < $ph/$i/$j
+    done
+done
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+	
